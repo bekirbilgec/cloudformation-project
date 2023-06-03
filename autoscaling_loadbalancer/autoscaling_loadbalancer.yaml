@@ -3,6 +3,14 @@ Description: |
   This handson shows how to create an ASG with ELB and LT via CloudFormation template.
 Parameters:
 
+  VPC:
+    Description: Choose the VPC
+    Type: AWS::EC2::VPC::Id
+
+  Subnets:
+    Description: Choose at least 2 subnets
+    Type: List<AWS::EC2::Subnet::Id> #AWS::EC2::Subnet::Id
+    
   EnvParameter:
     Description: Choose your environment type
     Type: String
@@ -40,6 +48,50 @@ Mappings:
       test: ami-0e23c576dacf2e3df
   
 Resources:
+  MyASGPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref MyASG # Required
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60.0
+
+  MyASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: osvaldoasgcfn
+      DesiredCapacity: 1
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLT
+        Version: 1
+      MaxSize: 4
+      MinSize: 1 # Required
+      TargetGroupARNs: 
+        - !Ref MyTargetGrp #!GetAtt MyTargetGrp.TargetGroupArn
+      VPCZoneIdentifier: !Ref Subnets 
+
+
+  MyListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: # Required
+        - TargetGroupArn: !Ref MyTargetGrp # !GetAtt MyTargetGrp.TargetGroupArn
+          Type: forward
+      LoadBalancerArn: !Ref MyELB
+      Port: 80
+      Protocol: HTTP
+  MyELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: osvaldoelbcfn
+      SecurityGroups: 
+        - !GetAtt MySecGrp.GroupId #!Ref MySecGrp
+      Subnets: !Ref Subnets
+      Type: application
+
   MyLT:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -100,7 +152,7 @@ Resources:
       Port: 80
       Protocol: HTTP
       UnhealthyThresholdCount: 2
-      VpcId: #SONRA YAZACAĞIZ
+      VpcId: !Ref VPC
 
   MySecGrp:
     Type: AWS::EC2::SecurityGroup
@@ -116,6 +168,13 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-      VpcId: #SONRA YAZACAĞIZ
-  
+      VpcId: !Ref VPC
+       
 Outputs:
+  DNScfn:
+    Description: DNS of ELB
+    Value: !Join
+    - ''
+    - - 'http://'
+      - !GetAtt MyELB.DNSName
+    
