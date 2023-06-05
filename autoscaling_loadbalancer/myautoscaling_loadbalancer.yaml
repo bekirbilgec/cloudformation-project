@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: |
+  This CloudFormation template includes the configuration for automatic scaling group and load balancer to ensure high availability.
+  
+  The template creates an autoscaling group that dynamically scales based on the demands of your application, allowing it to respond to traffic fluctuations. Additionally, it utilizes a load balancer to distribute incoming traffic across multiple resources, enhancing fault tolerance.
+
+  This template can be customized based on the requirements of your subnets, security groups, and AMI IDs. It also allows easy configuration of parameters such as minimum and maximum scaling capacities for autoscaling.
+
+  By using this template, you can quickly and repeatably build an infrastructure that meets your application's requirements for high availability, scalability, and resilience.
+
+  NOTE: This template can be deployed using CloudFormation services like AWS CLI or AWS Management Console.
+
+  
+Parameters:
+  
+
+  
+Mappings:
+  
+
+  
+Resources:
+
+LogicalID:
+  Type: AWS::EC2::LaunchTemplate
+  Properties:
+    LaunchTemplateData:
+      ImageId: "String"
+      InstanceType: "String"
+      KeyName: "String"
+      SecurityGroupIds:
+        -
+      SecurityGroups:
+        -
+      UserData: "String"
+    LaunchTemplateName: "String"
+
+FirstTargetGroup:
+  Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  Properties:
+    HealthCheckIntervalSeconds: 10
+    HealthCheckPath: /
+    HealthCheckTimeoutSeconds: 5
+    HealthyThresholdCount: 3
+    IpAddressType: ipv4
+    Name: myfirstTG
+    Port: 80
+    Protocol: HTTP
+    UnhealthyThresholdCount: 2
+    VpcId: # Sonradan yazılacak unutmal !!!!!!!!!!!!!!!!!!1
+
+cfnSG:
+  Type: AWS::EC2::SecurityGroup
+  Properties:
+    GroupDescription: SG for autoscaling # Required
+    GroupName: mycfnsecgrp
+    SecurityGroupIngress: 
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+    VpcId: # Sonradan yazılacak unutma!!!!!!!!!!!!!!!!1
+  
+
+  
+Outputs:
+
