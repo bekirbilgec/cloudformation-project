@@ -12,46 +12,168 @@ Description: |
 
   
 Parameters:
-  
 
+  VPC:
+    Description: Choose the VPC
+    Type: AWS::EC2::VPC::Id  
+    
+  Subnets:
+    Description: Choose at least 2 subnets
+    Type: List<AWS::EC2::Subnet::Id>  # AWS::EC2::Subnet::Id
+    
+  MyKeyPair:
+    Description: choose your keyname
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: yunusemre.pem
+
+  InstanceType:
+    Description: choose the instance type 
+    Type: String
+    AllowedValues:
+         - t2.micro
+         - t2.small
+         - t2.nano
+    Default: t2.micro
+
+  EnvParameter:
+    Description: Choose the envirment type  
+    Type: String
+    AllowedValues:
+         - prod
+         - test
+    Default: prod
   
 Mappings:
-  
-
-  
+  RegionMap:
+    us-east-1:
+      prod: ami-0715c1897453cabd1
+      test: ami-0bef6cc322bfff646
+    us-east-2:
+      prod: ami-01107263728f3bef4
+      test: ami-05842f1afbf311a43
+    us-west-1:
+      prod: ami-0062dbf6b829f04e1
+      test: ami-04669a22aad391419
+    us-west-2:
+      prod: ami-0ab193018f3e9351b
+      test: ami-03c7c1f17ee073747
+    eu-west-1:
+      prod: ami-04f7efe62f419d9f5
+      test: ami-0e23c576dacf2e3df
+    
 Resources:
 
-LogicalID:
-  Type: AWS::EC2::LaunchTemplate
-  Properties:
-    LaunchTemplateData:
-      ImageId: "String"
-      InstanceType: "String"
-      KeyName: "String"
-      SecurityGroupIds:
-        -
-      SecurityGroups:
-        -
-      UserData: "String"
-    LaunchTemplateName: "String"
+  autoscalingpolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref MyAutoScaling # Required
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 60.0
 
-FirstTargetGroup:
-  Type: AWS::ElasticLoadBalancingV2::TargetGroup
-  Properties:
-    HealthCheckIntervalSeconds: 10
-    HealthCheckPath: /
-    HealthCheckTimeoutSeconds: 5
-    HealthyThresholdCount: 3
-    IpAddressType: ipv4
-    Name: myfirstTG
-    Port: 80
-    Protocol: HTTP
-    UnhealthyThresholdCount: 2
-    VpcId: # Sonradan yazılacak unutmal !!!!!!!!!!!!!!!!!!1
+  MyAutoScaling:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: newautoscaling
+      DesiredCapacity: 1
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: 1
+      MaxSize: 3 # Required
+      MinSize: 1 # Required
+      TargetGroupARNs: 
+        - !Ref FirstTargetGroup
+      VPCZoneIdentifier: !Ref Subnets
 
-cfnSG:
-  Type: AWS::EC2::SecurityGroup
-  Properties:
+  MyListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: # Required
+        - TargetGroupArn: !Ref FirstTargetGroup  # !GetAtt FirstTargetGroup.TargetGroupArn
+          Type: forward
+      LoadBalancerArn: !Ref MyELB # Required
+      Port: 80
+      Protocol: HTTP
+  
+  MyELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: MyfirstELB
+      SecurityGroups: 
+      SubnetMappings: 
+        !GetAtt cfnSG.GroupId   #!Ref MySecGrp
+      Subnets: !Ref Subnets
+      Type: application
+
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !FindInMap 
+          - RegionMap
+          - !Ref 'AWS::Region'
+          - !Ref EnvParameter
+        InstanceType: !Ref InstanceType
+        KeyName: !Ref MyKeyPair
+        SecurityGroupIds:
+          - !GetAtt cfnSG.GroupId
+        UserData: !Base64 |
+            #!/bin/bash
+            #update os
+            yum update -y
+            #install apache server
+            yum install -y httpd
+            # get private ip address of ec2 instance using instance metadata
+            TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+            && PRIVATE_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4`
+            # get public ip address of ec2 instance using instance metadata
+            TOKEN=`curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"` \
+            && PUBLIC_IP=`curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4` 
+            # get date and time of server
+            DATE_TIME=`date`
+            # set all permissions
+            chmod -R 777 /var/www/html
+            # create a custom index.html file
+            echo "<html>
+                <head>
+                <title> Application Load Balancer</title>
+                </head>
+                <body>
+                    <h1>Testing Application Load Balancer</h1>
+                    <h2>Congratulations! You have created an instance from Launch Template</h2>
+                    <h3>This web server is launched from the launch template by Osvaldo via CFN</h3>
+                    <p>This instance is created at <b>$DATE_TIME</b></p>
+                    <p>Private IP address of this instance is <b>$PRIVATE_IP</b></p>
+                    <p>Public IP address of this instance is <b>$PUBLIC_IP</b></p>
+                </body>
+                </html>" > /var/www/html/index.html
+                # start apache server
+                systemctl start httpd
+                systemctl enable httpd
+
+      LaunchTemplateName: myfirstcloudformation
+
+  FirstTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      IpAddressType: ipv4
+      Name: myfirstTG
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VPC # Sonradan yazılacak unutmal !!!!!!!!!!!!!!!!!!1
+
+  cfnSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
     GroupDescription: SG for autoscaling # Required
     GroupName: mycfnsecgrp
     SecurityGroupIngress: 
@@ -63,9 +185,18 @@ cfnSG:
         FromPort: 80
         ToPort: 80
         CidrIp: 0.0.0.0/0
-    VpcId: # Sonradan yazılacak unutma!!!!!!!!!!!!!!!!1
+    VpcId: !Ref VPC # Sonradan yazılacak unutma!!!!!!!!!!!!!!!!1
   
 
   
 Outputs:
+  BackupLoadBalancerDNSName:
+    Description: The DNSName of the backup load balancer
+    Value: !GetAtt BackupLoadBalancer.DNSName
+    Condition: CreateProdResources
+  InstanceID:
+    Description: The Instance ID
+    Value: !Ref EC2Instance
+
+  
 
